@@ -172,7 +172,7 @@ sf_intersections_with_zoom <- sf_intersections_by_type %>%
     lng = st_coordinates(centroid)[, 1],
     lat = st_coordinates(centroid)[, 2],
     zoom = paste0(
-      '<a class="go-map" href="#" data-lat="', lat, '" data-lng="', lng, '">',
+      '<a class="go-map" href="#" data-key="', key, '">',
       '<i class="bi bi-geo-alt-fill"></i></a>'
     )
   ) %>%
@@ -191,7 +191,8 @@ datatable(shared_intersections,
   options = list(
     dom = "Bfrtip",
     buttons = c("copy", "csv", "excel"),
-    pageLength = 10
+    pageLength = 10,
+    scrollY = "300px" # Set a fixed, scrollable height
   ),
   rownames = FALSE
 ) %>%
@@ -233,6 +234,7 @@ leaflet(shared_intersections) %>%
 
       var ct_selection = new crosstalk.SelectionHandle(group);
 
+      // Listen for changes on the selection handle
       ct_selection.on('change', function(e) {
         var selectedKey = (e.value && e.value.length > 0) ? e.value[0] : null;
 
@@ -253,20 +255,34 @@ leaflet(shared_intersections) %>%
         });
       });
 
+      // Add click listener to each polygon layer for two-way binding
+      map.eachLayer(function(layer) {
+        if (layer.options && layer.options.layerId) {
+          layer.on('click', function(e) {
+            var key = e.target.options.layerId;
+            var current_selection = ct_selection.value;
+
+            if (current_selection && current_selection[0] === key) {
+              ct_selection.clear(); // If already selected, clear the selection
+            } else {
+              ct_selection.set([key]); // Otherwise, set the new selection
+            }
+          });
+        }
+      });
+
       // Keep the existing zoom-to-feature logic
       $(document).on('click', '.go-map', function(e) {
         e.preventDefault();
         var $el = $(this);
-        var lat = $el.data('lat');
-        var lng = $el.data('lng');
-        if (lat && lng) {
-          map.flyTo([lat, lng], 12);
+        var key = $el.data('key'); // Get the key from the link
+        var layer = findLayerByKey(key);
+        if (layer) {
+          map.fitBounds(layer.getBounds());
         }
       });
     }
-    ",
-    shared_intersections$groupName()
-    )
+    ", group = shared_intersections$groupName())
   )
 ```
 :::
