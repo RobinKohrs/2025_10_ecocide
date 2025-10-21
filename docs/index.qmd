@@ -1,0 +1,318 @@
+---
+title: "Ecocide Austria"
+format:
+  html:
+    self-contained: false
+    theme: cosmo
+    toc: false
+    toc-depth: 3
+    code-fold: true
+    code-summary: "Show Code"
+    page-layout: full
+    grid:
+      margin-width: 100px
+      body-width: 1100px
+editor: source
+execute:
+  echo: true
+  warning: false
+  message: false
+  freeze: auto
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, waring = FALSE, message = FALSE)
+library(tidyverse)
+library(here)
+library(glue)
+library(sf)
+library(davR)
+library(jsonlite)
+library(mapview)
+m <- mapview
+library(leaflet)
+library(DT)
+library(crosstalk)
+library(htmlwidgets)
+
+
+# ++++++++++++++++++++++++++++++
+# read in data ----
+# ++++++++++++++++++++++++++++++
+geo_omv_dafni_8857 <- read_sf(
+    "~/Library/Mobile Documents/com~apple~CloudDocs/geodata/projects_data_raw/2025-10-ecocide/data_dafni/Austria-all-blocks.gpkg"
+)
+
+geo_pa_8857 <- read_sf(
+    "~/Library/Mobile Documents/com~apple~CloudDocs/geodata/projects_data_raw/2025-10-ecocide/output/wdpa/austria/wdpa_austria_polygons.gpkg"
+) %>%
+    st_transform(8857)
+
+
+# ++++++++++++++++++++++++++++++
+# intersections ----
+# ++++++++++++++++++++++++++++++
+geo_omv_dafni_8857 <- geo_omv_dafni_8857 %>%
+    rename_with(~ paste0("ms_", .), .cols = -attr(., "sf_column"))
+
+geo_pa_8857 <- geo_pa_8857 %>%
+    rename_with(~ paste0("pa_", .), .cols = -attr(., "sf_column"))
+
+geo_int_blocks_pa <- st_intersection(
+    geo_pa_8857,
+    geo_omv_dafni_8857
+)
+
+geo_int_blocks_pa %>%
+    select(
+        ms_descriptio,
+        ms_name,
+        ms_adm_co_gro,
+        ms_adm_co_nam,
+        ms_admin_area,
+        ms_attributio,
+        ms_lc_status,
+        ms_lc_type,
+        ms_mps_create,
+        ms_mps_dataso,
+        pa_NAME,
+        pa_ORIG_NAME,
+        pa_DESIG,
+        pa_DESIG_ENG,
+        pa_DESIG_TYPE,
+        pa_IUCN_CAT,
+        pa_INT_CRIT,
+        pa_GOV_TYPE
+    ) -> geo_int_pa_ms_at
+
+
+# write out intersections
+path_out_intersections <- sys_make_path(here(
+    "data_output/intersections_mapstand_pa_austria/intersections_mapstand_pa_austria.fgb"
+))
+unlink(path_out_intersections)
+write_sf(geo_int_pa_ms_at %>% st_transform(4326), path_out_intersections)
+
+# ++++++++++++++++++++++++++++++
+# get only OMV ----
+# ++++++++++++++++++++++++++++++
+geo_int_pa_ms_at_omv <- geo_int_pa_ms_at %>%
+    filter(str_detect(ms_adm_co_gro, "OMV"))
+```
+
+```{r}
+# Dramatically simplify geometries for the overview map to reduce file size
+tolerance <- 500 # meters
+geo_omv_dafni_simple <- st_simplify(geo_omv_dafni_8857, dTolerance = tolerance)
+geo_pa_simple <- st_simplify(geo_pa_8857, dTolerance = tolerance)
+geo_int_omv_simple <- st_simplify(geo_int_pa_ms_at_omv, dTolerance = tolerance)
+
+# Reproject data to WGS 84 (EPSG:4326) for leaflet
+geo_omv_dafni_4326 <- st_transform(geo_omv_dafni_simple, crs = 4326)
+geo_pa_4326 <- st_transform(geo_pa_simple, crs = 4326)
+geo_int_omv_4326 <- st_transform(geo_int_omv_simple, crs = 4326)
+
+# Replace mapview with a more efficient leaflet map
+leaflet() %>%
+    addProviderTiles(providers$CartoDB.Positron, group = "Basemap") %>%
+    addPolygons(
+        data = geo_pa_4326,
+        fillColor = "#7d7d7d",
+        fillOpacity = 0.4,
+        stroke = FALSE,
+        group = "Protected Areas"
+    ) %>%
+    addPolygons(
+        data = geo_omv_dafni_4326,
+        fillColor = "#2b2b2b",
+        fillOpacity = 0.4,
+        stroke = FALSE,
+        group = "Mapstand Data"
+    ) %>%
+    addPolygons(
+        data = geo_int_omv_4326,
+        fillColor = "tomato",
+        fillOpacity = 0.7,
+        color = "red",
+        weight = 1,
+        dashArray = "10",
+        group = "Intersection"
+    ) %>%
+    addLayersControl(
+        overlayGroups = c("Protected Areas", "Mapstand Data", "Intersection"),
+        options = layersControlOptions(collapsed = FALSE)
+    )
+```
+
+# Which types of interscetion?
+
+```{r}
+options(scipen = 999)
+geo_intersections_areas <- geo_int_pa_ms_at_omv %>%
+    mutate(
+        area_intersection_sqm = st_area(.),
+        area_intersection_sqkm = st_area(.) / 1e6,
+        area_intersection_ha = st_area(.) / 10000,
+    )
+total_intersection_sqkm <- sum(geo_intersections_areas$area_intersection_sqkm)
+```
+
+<div style="font-size: 1.2em; font-weight: bold; color: tomato; margin-bottom: 1em;">
+Total intersection area is `r round(units::drop_units(total_intersection_sqkm), 2)` sqkm.
+</div>
+
+### Intersections by Protected Area Type
+
+
+```{r}
+# First, create the summarized data with a clean area column
+sf_intersections_by_type <- geo_intersections_areas %>%
+    group_by(pa_DESIG_ENG, pa_DESIG) %>%
+    summarise(
+        total_area_sqkm = sum(area_intersection_sqkm, na.rm = TRUE),
+        .groups = "drop"
+    ) %>%
+    mutate(total_area_sqkm = units::drop_units(total_area_sqkm))
+
+# Simplify, reproject, and add a zoom-to link for the table
+sf_intersections_with_zoom <- sf_intersections_by_type %>%
+    st_simplify(dTolerance = 10) %>%
+    st_transform(crs = 4326) %>%
+    mutate(
+        key = row_number(), # Add a unique key for each row
+        centroid = st_point_on_surface(.), # Use '.' to refer to the sf object
+        lng = st_coordinates(centroid)[, 1],
+        lat = st_coordinates(centroid)[, 2],
+        zoom = paste0(
+            '<a class="go-map" href="#" data-key="',
+            key,
+            '">',
+            '<i class="bi bi-geo-alt-fill"></i></a>'
+        )
+    ) %>%
+    select(zoom, everything(), -centroid, -lng, -lat)
+
+# Wrap the data in a SharedData object for crosstalk, using the new key
+shared_intersections <- SharedData$new(sf_intersections_with_zoom, key = ~key)
+```
+
+
+::: {.column-page}
+::: {layout-ncol=2}
+
+```{r}
+datatable(
+    shared_intersections,
+    escape = FALSE, # Important: Renders the zoom icon HTML
+    extensions = "Buttons",
+    options = list(
+        dom = "Bt",
+        buttons = c("csv", "excel"),
+        scrollY = "400px",
+        paging = FALSE,
+        columnDefs = list(
+            list(visible = FALSE, targets = c("geom", "key"))
+        )
+    ),
+    rownames = FALSE
+) %>%
+    formatRound("total_area_sqkm", digits = 2) %>%
+    formatStyle(
+        "total_area_sqkm",
+        color = "tomato",
+        fontWeight = "bold"
+    )
+```
+
+
+```{r}
+# The Map, with custom JavaScript to handle persistent highlighting on click
+leaflet(shared_intersections) %>%
+    addProviderTiles(providers$CartoDB.Positron) %>%
+    addPolygons(
+        layerId = ~key, # Assign the unique key as the layerId
+        weight = 2,
+        fillOpacity = 0.7,
+        color = "tomato",
+        label = ~ glue::glue("{pa_DESIG_ENG}: {round(total_area_sqkm, 2)} sqkm")
+    ) %>%
+    onRender(
+        sprintf(
+            "
+    function(el, x) {
+      var map = this;
+      var group = '%s';
+
+      // Define the three style states
+      var defaultStyle = { 'weight': 2, 'fillOpacity': 0.7, 'color': 'tomato', 'fillColor': 'tomato' };
+      var highlightStyle = { 'weight': 4, 'color': 'black', 'fillColor': 'yellow', 'fillOpacity': 0.8 };
+      var ghostStyle = { 'fillOpacity': 0.1, 'stroke': false };
+
+      function findLayerByKey(key) {
+        var foundLayer = null;
+        map.eachLayer(function(layer) {
+          if (layer.options && layer.options.layerId == key) {
+            foundLayer = layer;
+          }
+        });
+        return foundLayer;
+      }
+
+      var ct_selection = new crosstalk.SelectionHandle(group);
+
+      // Listen for changes on the selection handle
+      ct_selection.on('change', function(e) {
+        var selectedKey = (e.value && e.value.length > 0) ? e.value[0] : null;
+
+        map.eachLayer(function(layer) {
+          // Act on our data layers (which have a layerId)
+          if (layer.options && layer.options.layerId) {
+            if (selectedKey) { // A selection is active
+              if (layer.options.layerId == selectedKey) {
+                layer.bringToFront();
+                layer.setStyle(highlightStyle);
+              } else {
+                layer.setStyle(ghostStyle);
+              }
+            } else { // No selection, restore all to default
+              layer.setStyle(defaultStyle);
+            }
+          }
+        });
+      });
+
+      // Add click listener to each polygon layer for two-way binding
+      map.eachLayer(function(layer) {
+        if (layer.options && layer.options.layerId) {
+          layer.on('click', function(e) {
+            var key = e.target.options.layerId;
+            var current_selection = ct_selection.value;
+
+            if (current_selection && current_selection[0] === key) {
+              ct_selection.clear(); // If already selected, clear the selection
+            } else {
+              ct_selection.set([key]); // Otherwise, set the new selection
+            }
+          });
+        }
+      });
+
+      // Keep the existing zoom-to-feature logic
+      $(document).on('click', '.go-map', function(e) {
+        e.preventDefault();
+        var $el = $(this);
+        var key = $el.data('key'); // Get the key from the link
+        var layer = findLayerByKey(key);
+        if (layer) {
+          map.fitBounds(layer.getBounds());
+        }
+      });
+    }
+    ",
+            group = shared_intersections$groupName()
+        )
+    )
+```
+
+:::
+:::
