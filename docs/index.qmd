@@ -1,5 +1,5 @@
 ---
-title: "Ecocide Austria"
+title: "Intersections Oil and Gas concessions with protected Areas"
 format:
   html:
     self-contained: false
@@ -388,7 +388,7 @@ leaflet(shared_intersections) %>%
 :::
 :::
 
-## Was OMV schreibt:
+## How OMV is reporting
 
 <style>
 mark {
