@@ -20,6 +20,65 @@ execute:
   freeze: auto
 ---
 
+The data in this map comes from:
+
+1. **Protected Areas**
+
+
+  - Comes from the [World Database on Protected Areas (WDPA)](https://www.protectedplanet.net/en/thematic-areas/wdpa?tab=WDPA)
+
+:::{.callout-note collapse="true" title="More on WDPA"}
+
+### **Summary of the World Database on Protected Areas (WDPA)**
+
+**What is the WDPA?**
+
+The World Database on Protected Areas (WDPA) is the most comprehensive and authoritative global database of terrestrial and marine protected areas. It is a key resource for scientists, governments, businesses, and conservation organizations. The database includes spatial data (boundaries and points) and attribute data (such as designation, status, and governance type) for over 260,000 protected areas worldwide.
+
+**History and Mandate**
+
+Although formally established in 1981, the mandate for the WDPA dates back to a 1959 United Nations resolution calling for a list of national parks and reserves. The first "UN List of Protected Areas" was published in 1962. Over the years, numerous decisions from the Conference of the Parties to the Convention on Biological Diversity (CBD) have reinforced the importance of the WDPA and encouraged countries to provide up-to-date information.
+
+**Management and Collaboration**
+
+The WDPA is a joint project between the UN Environment Programme (UNEP) and the International Union for Conservation of Nature (IUCN). Its compilation and daily management are handled by the UN Environment Programme World Conservation Monitoring Centre (UNEP-WCMC), which collaborates with governments, NGOs, and other data providers to collect and verify the information. The data is updated monthly and made publicly available through the Protected Planet website.
+
+**Key Uses and Significance**
+
+The WDPA is a critical tool for global conservation and sustainable development efforts. Its primary uses include:
+*   **Monitoring Global Targets:** It is used to track progress towards international conservation goals, such as the Aichi Biodiversity Targets and the UN Sustainable Development Goals.
+*   **Informing Policy and Decision-Making:** The database provides essential information for governments, international bodies, and businesses in sectors like mining, oil and gas, and finance to assess environmental risks and opportunities.
+*   **Scientific Research:** Researchers use the WDPA for gap analysis, conservation planning, and to study the effectiveness of protected areas.
+*   **Decision-Support Tools:** The data is integrated into various platforms like the Integrated Biodiversity Assessment Tool (IBAT), Global Forest Watch, and the Digital Observatory for Protected Areas to provide actionable information to a wide range of users.
+*   **Reporting:** UNEP-WCMC releases a biennial Protected Planet Report based on WDPA data to assess the status of the world's protected areas.
+
+:::
+  
+2. Data on Blocks comes from **Mapstand**
+
+:::{.callout-note collapse="true" title="More on Mapstand"}
+
+**What is MapStand?**
+
+MapStand is a specialized research company that creates and provides geospatial data focused on global energy infrastructure. They offer an interactive mapping platform that visualizes this data, helping users make faster, more informed decisions. Their data covers the entire energy spectrum, from traditional oil and gas to renewable power and emerging decarbonization technologies.
+
+**Core Offerings and Specialization**
+
+MapStand's primary service is providing comprehensive and up-to-date geospatial data layers for the energy sector. Their platform includes interactive mapping, data visualization, and analysis tools. The key areas of data coverage include:
+*   **Power:** Generation and transmission infrastructure.
+*   **Oil and Gas:** Upstream (exploration), midstream (pipelines, transport), and downstream (refining) assets.
+*   **Energy Transition:** Emerging technologies like hydrogen projects and Carbon Capture, Utilisation, and Storage (CCUS).
+
+**Mission and Goal**
+
+MapStand's stated mission is to make essential energy industry information open and accessible to accelerate innovation and support an efficient global energy transition. By providing a clear, data-driven view of the entire energy landscape, they aim to help their users—who range from project developers to financial advisors—stay informed and make better decisions regarding investments and projects.
+
+**Company and Team**
+
+Operating since 2018, MapStand is a UK-based company composed of a diverse team of data analysts, GIS specialists, geoscientists, and geologists. This team combines extensive industry experience to research, verify, and present the energy data on their platform.
+:::
+
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, waring = FALSE, message = FALSE)
 library(tidyverse)
@@ -120,14 +179,25 @@ leaflet() %>%
         fillColor = "#7d7d7d",
         fillOpacity = 0.4,
         stroke = FALSE,
-        group = "Protected Areas"
+        group = "Protected Areas",
+        popup = ~ glue::glue(
+            "<b>{pa_NAME}</b><br>",
+            "Designation: {pa_DESIG}"
+        )
     ) %>%
     addPolygons(
         data = geo_omv_dafni_4326,
         fillColor = "#2b2b2b",
         fillOpacity = 0.4,
         stroke = FALSE,
-        group = "Mapstand Data"
+        group = "Mapstand Data",
+        popup = ~ glue::glue(
+            "<b>{ms_name}</b><br>",
+            "Group: {ms_adm_co_gro}<br>",
+            "Company: {ms_adm_co_nam}<br>",
+            "Status: {ms_lc_status}<br>",
+            "Type: {ms_lc_type}"
+        )
     ) %>%
     addPolygons(
         data = geo_int_omv_4326,
@@ -226,7 +296,7 @@ datatable(
 
 
 ```{r}
-# The Map, with custom JavaScript to handle persistent highlighting on click
+# custom JavaScript to handle persistent highlighting on click
 leaflet(shared_intersections) %>%
     addProviderTiles(providers$CartoDB.Positron) %>%
     addPolygons(
@@ -265,6 +335,7 @@ leaflet(shared_intersections) %>%
         var selectedKey = (e.value && e.value.length > 0) ? e.value[0] : null;
 
         map.eachLayer(function(layer) {
+        console.log('layer:', layer)
           // Act on our data layers (which have a layerId)
           if (layer.options && layer.options.layerId) {
             if (selectedKey) { // A selection is active
